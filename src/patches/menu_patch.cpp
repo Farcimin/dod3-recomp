@@ -39,7 +39,12 @@
 #include "cpu/eboot.h"
 #include "util.h"
 #include "install/crypto.h"
-#if DOD3_EBOOT == 101
+#if DOD3_EU
+/* NPEB01407: the game's own package (the Russian translation's), made with
+ * tools/menu_patch.py --eboot=eu. The overlay is game/patcheu. */
+#include "patches/menu_patch_data_eu.h"
+#define MENU_OVERLAY "patcheu"
+#elif DOD3_EBOOT == 101
 /* 1.01: the update's package (its PATCH folder), which its EBOOT's table
  * names; patch files have no TOC line. The overlay is game/patch101, so a
  * 1.00 build and a 1.01 build never see each other's patched package. */
@@ -273,7 +278,50 @@ bool patched_package(const fs::path& pkg, std::vector<uint8_t>* z, uint32_t* usi
     return true;
 }
 
-#if DOD3_EBOOT == 101
+#if DOD3_EU
+/* NPEB01407 keeps its packages uncompressed (PS3TOC.TXT's second field 0):
+ * the patched one is written so too, and its TOC line given its new size. */
+const fs::path k_game_eu = fs::path("game") / DOD3_TITLE_DIR / "USRDIR" / "SQEX03GAME";
+
+fs::path source_package(const fs::path& root) { return root / k_game_eu / "COOKEDPS3" / "SQEX03GAME.XXX"; }
+
+bool generate(const fs::path& root, const fs::path& ov, std::string* own)
+{
+    std::vector<uint8_t> u, toc;
+    if (!read_file(root / k_game_eu / "PS3TOC.TXT", toc)) {
+        fprintf(stderr, "[menu] PS3TOC.TXT is missing under %s\n", utf8(root / k_game_eu).c_str());
+        return false;
+    }
+    if (!read_file(source_package(root), u)) {
+        fprintf(stderr, "[menu] the script package is missing: %s\n", utf8(source_package(root)).c_str());
+        return false;
+    }
+    const std::string sha = sha1_hex(u);
+    if (sha != k_menu_patch_orig_sha1) {
+        fprintf(stderr, "[menu] SQEX03GAME.XXX is not the one the patch was made from: the title plays it as it is\n");
+        *own = sha;
+        return false;
+    }
+    if (!apply_patch(u) || u.size() != k_menu_patch_size || sha1_hex(u) != k_menu_patch_sha1) {
+        fprintf(stderr, "[menu] the patch did not apply\n");
+        return false;
+    }
+    std::string toc2;
+    toc_rewrite(toc, toc2, (uint32_t)u.size(), 0);   /* one line here: no .UNCOMPRESSED_SIZE file */
+    if (toc2 == std::string(toc.begin(), toc.end())) {
+        fprintf(stderr, "[menu] PS3TOC.TXT has no SQEX03GAME.XXX line\n");
+        return false;
+    }
+    return write_file(ov / k_game_eu / "COOKEDPS3" / "SQEX03GAME.XXX", u.data(), u.size()) &&
+           write_file(ov / k_game_eu / "PS3TOC.TXT", toc2.data(), toc2.size());
+}
+
+bool generated(const fs::path& ov)
+{
+    std::error_code ec;
+    return fs::exists(ov / k_game_eu / "COOKEDPS3" / "SQEX03GAME.XXX", ec);
+}
+#elif DOD3_EBOOT == 101
 const fs::path k_cooked101 = fs::path("game") / "BLES00000" / "USRDIR" / "PATCH" / "SQEX03GAME" / "COOKEDPS3";
 
 fs::path source_package(const fs::path& root) { return root / k_cooked101 / "SQEX03GAME.XXX"; }
@@ -340,6 +388,10 @@ bool generated(const fs::path& ov)
  * package against it), now this hash: 40 hex digits. */
 bool override_hash(const std::string& hex)
 {
+#if DOD3_EU
+    (void)hex;
+    return true;   /* NPEB01407's table is disabled (its names end ".zzz"): nothing to match */
+#endif
     std::vector<uint8_t> h;
     return dod3setup::from_hex(hex, &h) && h.size() == 20 && dod3_sha_override("sqex03game.xxx", h.data());
 }

@@ -24,8 +24,118 @@
 #ifndef DOD3_EBOOT
 #define DOD3_EBOOT 101
 #endif
+/* DOD3_EU=1: the European PSN release (NPEB01407), a 1.01-level build of
+ * its own (recompiled_eu/, elf/EBOOT_EU.ELF); DOD3_EBOOT stays 101. */
+#ifndef DOD3_EU
+#define DOD3_EU 0
+#endif
 
-#if DOD3_EBOOT == 101
+#if DOD3_EBOOT == 101 && DOD3_EU
+/* The European PSN release, NPEB01407: the same code as 1.01, built again
+ * for the region (~420 functions changed, none the port hooks), most of it
+ * moved -0xB90 and the data +0x100. Found as the 1.01 column was, with
+ * tools/eboot_diff.py (1.01 -> NPEB01407), addr_map.py and data_map.py;
+ * the functions replaced natively (the GC pass, the collision test) were
+ * checked to be the same code to their ends. The SPU programs are
+ * byte-identical to 1.01's. */
+#define DOD3_EBOOT_NAME "NPEB01407 1.01"
+/* lifted functions the port calls or replaces */
+#define DOD3_FN_GC_REACH               func_00EE6B98 /* FArchiveRealtimeGC reachability (src/patches/gc_native.cpp) */
+#define DOD3_FN_GC_REACH_LIFTED        func_00EE6B98_lifted
+#define DOD3_FN_COLLECT_GARBAGE        func_000C1E50
+#define DOD3_FN_COLLECT_GARBAGE_LIFTED func_000C1E50_lifted
+#define DOD3_FN_PERIODIC_GC            func_0041C170
+#define DOD3_FN_COLLISION_TEST         func_00272E58 /* src/cpu/hot.cpp */
+#define DOD3_FN_COLLISION_TEST_LIFTED  func_00272E58_lifted
+#define DOD3_FN_GET_MAX_TICK_RATE      func_00424380 /* UGameEngine::GetMaxTickRate, the title's own */
+#define DOD3_FN_PROCESS_ASYNC_LOADING  func_0005E59C /* UObject::ProcessAsyncLoading (src/patches/load_idle.cpp) */
+#define DOD3_FN_APP_REALLOC            func_0001028C
+#define DOD3_FN_EXEC_GETSTRING         func_0145D6E4 /* USqex03DataMessage::execGetString */
+#define DOD3_FN_EXEC_BRIDGE            func_013F3810 /* USqex03GameOption::execUpdateDisplayParam */
+#define DOD3_FN_GMALLOC_CREATE         func_008EB060
+#define DOD3_FN_TARRAY_ADDITEM         func_00ECE3DC
+#define DOD3_FN_GC_PREPARE             func_000C1D48
+#define DOD3_FN_GC_REACH_A             func_00EE69C0
+#define DOD3_FN_GC_REACH_B             func_00EE6A68
+#define DOD3_FN_APP_ERRORF             func_00012538
+#define DOD3_FN_TREE_CREATE_PROXY      func_00817FD4 /* USpeedTreeComponent::CreateSceneProxy (patches/sysset.cpp) */
+#define DOD3_FN_CANVAS_PROJECT         func_00643480 /* UCanvas::execProject (patches/hud_aspect.cpp) */
+#define DOD3_FN_HUD_CALC_TRANSFORM     func_009DDE08 /* ASqex03GameHUD::CalcTransformPosition (patches/hud_aspect.cpp) */
+#define DOD3_FN_SONG_JUDGE             func_0091CC10 /* the note judge of branch D's final song (patches/song_autoplay.cpp) */
+#define DOD3_FN_SET_DEPTH_OF_FIELD     func_00A53994 /* the title's own switches of FSystemSettings (patches/sysset.cpp) */
+#define DOD3_FN_SET_MOTION_BLUR        func_00A539B8
+#define DOD3_FN_FLIP_DEPTH_OF_FIELD    func_00A53B60
+#define DOD3_FN_FLIP_MOTION_BLUR       func_00A53B8C
+#define DOD3_FN_DRAGON_SHOOTING_CURSOR func_009D1A48 /* ASqex03GamePawnPlayerDragon::UpdateShootingCursor (patches/dragon_cursor.cpp) */
+#define DOD3_FN_ARCHIVE_ASYNC_SERIALIZE func_00141420 /* FArchiveAsync::Serialize, the package loader's reads (patches/archive_native.cpp) */
+#define DOD3_FN_LINKER_SERIALIZE       func_0014A32C /* FLinkerLoad::Serialize: Loader->Serialize (patches/archive_native.cpp) */
+#define DOD3_FN_LINKER_NAME            func_0014A62C /* FLinkerLoad::operator<<(FName&), the FArchive's thunk (patches/archive_native.cpp) */
+#define DOD3_FN_GAUGE_SET              func_0095A404 /* a pawn's gauge set, clamped to its range (patches/cheats.cpp) */
+#define DOD3_FN_ITEM_REMOVE            func_00A6B9A0 /* the inventory's RemoveItem(id, count) (patches/cheats.cpp) */
+#define DOD3_FN_TIME_LIMIT_TICK        func_009F32D0 /* a mission's time limit counting down (patches/cheats.cpp) */
+#define DOD3_FN_SHOOTING_CURSOR_ON     func_0096ACF0 /* ASqex03GamePawn::IsEnableShootingCursor */
+#define DOD3_FN_UBER_CREATE_PROXY      func_00306728 /* UUberPostProcessEffect::CreateSceneProxy (patches/sysset.cpp) */
+#define DOD3_FN_DOFBLOOM_CREATE_PROXY  func_001B1B64 /* UDOFAndBloomEffect::CreateSceneProxy */
+#define DOD3_FN_HUD_BLOOD_DRAW         func_009E44A0 /* USqex03GameHUDBlood::Draw (patches/sysset.cpp) */
+#define DOD3_FN_HUD_DYING_UPDATE       func_009E7378 /* USqex03GameHUDDying::Update */
+/* code addresses */
+#define DOD3_A_EXEC_GETSTRING    0x0145D6E4u
+#define DOD3_A_EXEC_BRIDGE       0x013F3810u
+#define DOD3_A_FAST_POLL_LR      0x008B0D18u /* the render thread's fence poll */
+#define DOD3_A_PERIODIC_GC_RET   0x0041C1C8u
+#define DOD3_A_LIMITER_SLEEP_RET 0x008ED1A0u
+#define DOD3_A_INFLATE_PUSH_LR   0x00AC7BD8u /* edgeZlibAddInflateQueueElement's LFQueue push */
+#define DOD3_GC_CODE_SHIFT       0x660u  /* func_00EE6538 and its constants, 1.00 -> NPEB01407 */
+/* data */
+#define DOD3_A_FPS_NUMERATOR        0x008ECEECu /* 1.0f in the frame limiter */
+#define DOD3_A_GENGINE              0x01999164u
+#define DOD3_A_GOBJ_ASYNC_PACKAGES  0x01A0C3A0u /* GObjAsyncPackages, a TArray: data, num, max (src/patches/load_idle.cpp) */
+#define DOD3_A_RENDER_IDLE_TICK_HZ  0x01991234u /* GRenderingThreadMaxIdleTickFrequency (40.0f) */
+#define DOD3_A_SHA_TABLE_LO         0x019AD080u
+#define DOD3_A_SHA_TABLE_HI         0x019AD580u
+#define DOD3_A_GNATIVES             0x019BF3F0u
+#define DOD3_A_GWORLD               0x0199B880u
+#define DOD3_A_GOBJOBJECTS          0x01A0C334u /* TArray<UObject*>: data, num */
+#define DOD3_A_GOBJ_FIRST_GC_INDEX  0x01A0C3BCu
+#define DOD3_A_GC_VISIT_COUNTER     0x019C81ECu
+#define DOD3_A_PERM_OBJ_START       0x019907CCu
+#define DOD3_A_PERM_OBJ_END         0x019907D0u
+#define DOD3_A_GMALLOC              0x0197FFA0u
+#define DOD3_A_GERROR               0x0197FF84u
+#define DOD3_A_GC_ERROR_FMT         0x0163910Cu
+#define DOD3_A_SYSTEM_SETTINGS_DATA 0x01A12E8Cu /* GSystemSettings + 4 (src/patches/sysset.cpp) */
+#define DOD3_A_TREE_CREATE_PROXY    0x00817FD4u
+#define DOD3_A_CANVAS_PROJECT       0x00643480u
+#define DOD3_A_HUD_CALC_TRANSFORM   0x009DDE08u
+#define DOD3_A_SONG_JUDGE           0x0091CC10u
+#define DOD3_A_SET_DEPTH_OF_FIELD   0x00A53994u
+#define DOD3_A_SET_MOTION_BLUR      0x00A539B8u
+#define DOD3_A_FLIP_DEPTH_OF_FIELD  0x00A53B60u
+#define DOD3_A_FLIP_MOTION_BLUR     0x00A53B8Cu
+#define DOD3_A_DRAGON_SHOOTING_CURSOR 0x009D1A48u
+#define DOD3_A_UBER_CREATE_PROXY    0x00306728u
+#define DOD3_A_DOFBLOOM_CREATE_PROXY 0x001B1B64u
+#define DOD3_A_HUD_BLOOD_DRAW       0x009E44A0u
+#define DOD3_A_HUD_DYING_UPDATE     0x009E7378u
+#define DOD3_O_HUD_DYING_ALPHA      0xB4u   /* USqex03GameHUDDying: m_fFrameColor */
+#define DOD3_O_DOF_PROXY_BLUR_NEAR  0x14u   /* FDOFPostProcessSceneProxy: MaxNearBlurAmount (MaxFar at +0x1C) */
+#define DOD3_A_ARCHIVE_ASYNC_SERIALIZE 0x00141420u
+#define DOD3_A_LINKER_SERIALIZE       0x0014A32Cu
+#define DOD3_A_LINKER_NAME            0x0014A62Cu
+#define DOD3_A_GAUGE_SET              0x0095A404u
+#define DOD3_A_ITEM_REMOVE            0x00A6B9A0u
+#define DOD3_A_TIME_LIMIT_TICK        0x009F32D0u
+#define DOD3_A_PLAYER_CONTROLLER_VTABLE 0x0173A1A0u /* the player's controller (patches/cheats.cpp) */
+#define DOD3_O_PAWN_CONTROLLER        0x1E8u /* APawn::Controller */
+#define DOD3_O_CONTROLLER_PAWN        0x1CCu /* AController::Pawn */
+#define DOD3_O_SHOOTING_CURSOR      0x13F4u /* ASqex03GamePawn: m_xTarget.m_xShooting.m_vCurPos, (x, y) of the screen */
+#define DOD3_O_SHOOTING_RECT        0x1448u /* m_xTarget.m_xShooting.m_fShootingRect_Up, _Bottom, _Left, _Right */
+#define DOD3_O_HUD_CANVAS          0x414u /* ASqex03GameHUD: AHUD::Canvas */
+#define DOD3_O_HUD_SCREEN_POS       0x748u /* ASqex03GameHUD: CalcTransformPosition's results, a TArray of (x, y) */
+#define DOD3_A_TREE_PROXY_VTABLE    0x016E8034u /* FSpeedTreeSceneProxy */
+#define DOD3_A_PHYSX_TASKSET        "01AA7800" /* the PhysX taskset (SPURS_TASKSET_CONTENTION, main.cpp) */
+#define DOD3_TITLE_DIR              "NPEB01407" /* /dev_hdd0/game/<it>: the game, its DLC */
+#elif DOD3_EBOOT == 101
 #define DOD3_EBOOT_NAME "1.01"
 /* lifted functions the port calls or replaces */
 #define DOD3_FN_GC_REACH               func_00EE7728 /* FArchiveRealtimeGC reachability (src/patches/gc_native.cpp) */
@@ -121,6 +231,7 @@
 #define DOD3_O_HUD_CANVAS          0x414u /* ASqex03GameHUD: AHUD::Canvas */
 #define DOD3_O_HUD_SCREEN_POS       0x748u /* ASqex03GameHUD: CalcTransformPosition's results, a TArray of (x, y) */
 #define DOD3_A_TREE_PROXY_VTABLE    0x016E8C34u /* FSpeedTreeSceneProxy */
+#define DOD3_A_PHYSX_TASKSET        "01AA7700" /* the PhysX taskset (SPURS_TASKSET_CONTENTION, main.cpp) */
 #else
 #define DOD3_EBOOT_NAME                "1.00"
 #define DOD3_FN_GC_REACH               func_00EE6538

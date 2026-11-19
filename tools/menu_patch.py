@@ -81,13 +81,17 @@ CMD_BEGIN, CMD_CHANGE, CMD_ISDEF, CMD_RESET, CMD_APPLY, CMD_CHANGED, CMD_SKIPINT
     CMD_GRAPHICS_SHOWN, CMD_CAM_DT, CMD_CAM_ACTIVE, CMD_CAM_AXIS, CMD_CAM_VIEW, \
     CMD_ASPECT, CMD_ASPECT_FOV, CMD_HUD, CMD_DLC_JPVOICE = range(19)
 
-GAME = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'game', 'disc')
+GAME = os.environ.get('DOD3_GAME_DISC') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'game', 'disc')
 ROOT = os.path.join(GAME, 'PS3_GAME', 'USRDIR', 'SQEX03GAME')
 SRC = ROOT + '/COOKEDPS3/SQEX03GAME.XXX'
 ORIG_SHA1 = '70e1e44a648eaf8dee338eaf439c69c97d1c0d71'   # the EBOOT's table entry
 # 1.01: the update's package, which its EBOOT's table names
 ROOT_101 = os.path.join(GAME, 'game', 'BLES00000', 'USRDIR', 'PATCH', 'SQEX03GAME')
 ORIG_SHA1_101 = 'ac297f7cd33faee49708fbf7f5b1bb4f8a2031d8'
+# NPEB01407 (--eboot=eu): the game's own package, the Russian translation's
+# (its EBOOT's table is disabled, so the hash is the package's own)
+ROOT_EU = os.path.join(GAME, 'game', 'NPEB01407', 'USRDIR', 'SQEX03GAME')
+ORIG_SHA1_EU = 'ffbdb4036b44eb340c22ff76511a6896787442a9'
 
 def main():
     args = [x for x in sys.argv[1:] if not x.startswith('--')]
@@ -97,9 +101,13 @@ def main():
     for x in sys.argv[1:]:
         if x.startswith('--header='): header = x[9:]
     global ROOT, SRC, ORIG_SHA1
-    v101 = '--eboot=101' in sys.argv
-    if v101:
+    veu = '--eboot=eu' in sys.argv
+    v101 = '--eboot=101' in sys.argv or veu   # NPEB01407 is at 1.01's level
+    if veu:
+        ROOT, ORIG_SHA1 = ROOT_EU, ORIG_SHA1_EU
+    elif v101:
         ROOT, ORIG_SHA1 = ROOT_101, ORIG_SHA1_101
+    if v101:
         SRC = ROOT + '/COOKEDPS3/SQEX03GAME.XXX'
     disasm.load_natives([ROOT + '/COOKEDPS3/' + n for n in ('CORE.XXX', 'ENGINE.XXX', 'GAMEFRAMEWORK.XXX', 'SQEX03GAME.XXX')])
     u = upk.decompress(SRC)
@@ -436,7 +444,10 @@ def main():
         bodies.append((f, old, body))
         u2 = pkgpatch.replace_export(u2, pk.exps, f, body)
     sha = hashlib.sha1(u2).hexdigest()
-    if out and v101:
+    if out and veu:
+        pkgpatch.save_full(u2, out + '/game/NPEB01407/USRDIR/SQEX03GAME/COOKEDPS3/SQEX03GAME.XXX',
+                           pkgpatch.block_size_of(SRC))
+    elif out and v101:
         ov = out + '/game/BLES00000/USRDIR/PATCH/SQEX03GAME'   # patch files have no TOC
         pkgpatch.save_full(u2, ov + '/COOKEDPS3/SQEX03GAME.XXX', pkgpatch.block_size_of(SRC))
         open(out + '/sha1.txt', 'w').write(sha)
@@ -479,7 +490,7 @@ def write_header(path, bodies, size, sha):
                 ' * patch to SQEX03GAME.XXX (see src/patches/menu_patch.cpp). */\n')
         h.write('static const char k_menu_patch_version[] = "%s";\n' % ver)
         h.write('static const char k_menu_patch_orig_sha1[] = "%s";\n' % ORIG_SHA1)
-        h.write('static const char k_menu_patch_eboot[] = "%s";\n' % ('1.01' if ORIG_SHA1 == ORIG_SHA1_101 else '1.00'))
+        h.write('static const char k_menu_patch_eboot[] = "%s";\n' % ({ORIG_SHA1_101: '1.01', ORIG_SHA1_EU: 'NPEB01407'}.get(ORIG_SHA1, '1.00')))
         h.write('static const char k_menu_patch_sha1[] = "%s";\n' % sha)
         h.write('static const unsigned k_menu_patch_size = %d;\n' % size)
         h.write('static const unsigned k_menu_patch_count = %d;\n' % len(bodies))

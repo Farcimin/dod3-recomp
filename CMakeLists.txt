@@ -59,7 +59,16 @@ get_filename_component(PS3RECOMP_DIR "${PS3RECOMP_DIR}" ABSOLUTE)
 #   cmake -B build_100 -G Ninja -DDOD3_EBOOT=100
 set(DOD3_EBOOT 101 CACHE STRING "EBOOT version the lift is from: 101 or 100")
 set_property(CACHE DOD3_EBOOT PROPERTY STRINGS 100 101)
-if(DOD3_EBOOT STREQUAL "101")
+# DOD3_EU: the European PSN release (NPEB01407) instead, a 1.01-level build
+# of its own, lifted from elf/EBOOT_EU.ELF into recompiled_eu/ (its column in
+# src/cpu/eboot.h):  cmake -B build_eu -G Ninja -DDOD3_EU=ON
+option(DOD3_EU "Build for the European PSN release (NPEB01407)" OFF)
+if(DOD3_EU AND NOT DOD3_EBOOT STREQUAL "101")
+    message(FATAL_ERROR "DOD3_EU is a 1.01-level build: leave DOD3_EBOOT at 101")
+endif()
+if(DOD3_EU)
+    set(_dod3_recomp_default "${CMAKE_CURRENT_SOURCE_DIR}/recompiled_eu")
+elseif(DOD3_EBOOT STREQUAL "101")
     set(_dod3_recomp_default "${CMAKE_CURRENT_SOURCE_DIR}/recompiled_101")
 else()
     set(_dod3_recomp_default "${CMAKE_CURRENT_SOURCE_DIR}/recompiled")
@@ -82,7 +91,9 @@ endif()
 # cache, so one configured for the other version would build 1.01 code
 # against the 1.00 lift and fail at link; the hooked functions' lifted
 # bodies tell the two apart.
-if(DOD3_EBOOT STREQUAL "101")
+if(DOD3_EU)
+    set(_dod3_lift_mark "func_00EE6B98_lifted")
+elseif(DOD3_EBOOT STREQUAL "101")
     set(_dod3_lift_mark "func_00EE7728_lifted")
 else()
     set(_dod3_lift_mark "func_00EE6538_lifted")
@@ -542,8 +553,16 @@ if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/res/app.rc")
     target_sources(${PROJECT_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/res/app.rc")
 endif()
 
-target_compile_definitions(${PROJECT_NAME} PRIVATE DOD3_EBOOT=${DOD3_EBOOT})
-message(STATUS "EBOOT:           BLUS31197 ${DOD3_EBOOT}")
+if(DOD3_EU)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE DOD3_EBOOT=${DOD3_EBOOT} DOD3_EU=1)
+else()
+    target_compile_definitions(${PROJECT_NAME} PRIVATE DOD3_EBOOT=${DOD3_EBOOT})
+endif()
+if(DOD3_EU)
+    message(STATUS "EBOOT:           NPEB01407 (1.01 level)")
+else()
+    message(STATUS "EBOOT:           BLUS31197 ${DOD3_EBOOT}")
+endif()
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     "${RECOMP_DIR}"                            # the generated ppu_recomp.h

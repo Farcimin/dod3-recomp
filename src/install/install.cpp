@@ -41,8 +41,17 @@ const char kDlcPrefix[] = "UP0082-NPUB31251_00-";
 const char kPsnGameId[] = "UP0082-NPUB31251_00-DOD3MAINGAME0000";
 const char kPsnGameSha1[] = "e93a19fae13a5f5d332a311d91d939fcf4987514";
 const char kPsnUpdateSha1[] = "4a0ad3c8fd7abe8937da712aec8e4df519fe6250";
-/* The European PSN release (NPEB01407): a build of its own, not supported. */
+/* The European PSN release (NPEB01407): a build of its own (DOD3_EU,
+ * src/cpu/eboot.h). Its game comes in packages of a release's own -- the
+ * Russian translation's five, DOD3MAINGAME0000 to 0004 -- and its DLC too
+ * (DLCPART1/2...); all are laid out as the console installs them, in
+ * /dev_hdd0/game/NPEB01407, and its executable is the first one's
+ * EBOOT.BIN, already at 1.01's level. */
 const char kEuPrefix[] = "EP0082-NPEB01407_00-";
+const char kEuGamePart[] = "DOD3MAINGAME000";   /* + 0..4 */
+const int kEuGameParts = 5;
+/* SHA-256 of NPEB01407's EBOOT.BIN as an ELF (the Russian translation's). */
+const char kElfEuSha256[] = "a47c8f7a5e8831d80e3a6f9aea0112619b193030b9ed7bd5d4b084dac547efae";
 /* SHA-256 of the disc's PS3TOC.TXT, which the PSN package's becomes. */
 const char kDiscTocSha256[] = "7b33d9c816018889ebfb4e1caf6aa6daa51ab5d51df05d358d2ca98938e1d6c5";
 /* SHA-256 of the update's EBOOT.BIN as an ELF (1.01); the disc's (1.00) is
@@ -57,7 +66,13 @@ const int kChapters = 6;   /* the DLC chapters: ADDSCENARIO00000 (Zero's) to 000
 using dod3::utf8;
 
 fs::path update_dir(const fs::path& base) { return base / "game/disc/game/BLES00000"; }
+#if DOD3_EU
+fs::path dlc_dir(const fs::path& base) { return base / "game/disc/game/NPEB01407"; }   /* the game itself */
+#else
 fs::path dlc_dir(const fs::path& base) { return base / "game/disc/game/NPUB31251"; }
+#endif
+/* NPEB01407: a package installed, by its content ID's last part */
+fs::path eu_mark(const fs::path& base, const std::string& id) { return base / "game/eu_installed" / id; }
 fs::path jpv_dir(const fs::path& base) { return dlc_dir(base) / "USRDIR/DLC_JPV"; }   /* the voice pack's own folder */
 fs::path mods_dir(const fs::path& base) { return base / "game/mods"; }
 /* each mod's file list and the update's files it replaced (install.h) */
@@ -948,8 +963,8 @@ const std::vector<DlcInfo>& known_dlc()
     return k;
 }
 
-bool update_required() { return DOD3_EBOOT == 101; }
-const char* eboot_path() { return DOD3_EBOOT == 101 ? "elf/EBOOT_101.ELF" : "elf/EBOOT.ELF"; }
+bool update_required() { return DOD3_EBOOT == 101 && !DOD3_EU; }
+const char* eboot_path() { return DOD3_EU ? "elf/EBOOT_EU.ELF" : DOD3_EBOOT == 101 ? "elf/EBOOT_101.ELF" : "elf/EBOOT.ELF"; }
 
 uint64_t Plan::bytes() const
 {
@@ -972,11 +987,18 @@ Status installed(const fs::path& base)
 {
     std::error_code ec;
     Status s;
+#if DOD3_EU
+    s.disc = fs::exists(dlc_dir(base) / "PARAM.SFO", ec);
+    for (int i = 0; i < kEuGameParts; i++) s.disc = s.disc && fs::exists(eu_mark(base, kEuGamePart + std::to_string(i)), ec);
+#else
     s.disc = disc_installed(base);
+#endif
     s.update = fs::exists(update_dir(base) / "USRDIR/PATCH/SQEX03GAME/COOKEDPS3/COALESCED_INT.BIN", ec);
     s.eboot = fs::file_size(base / eboot_path(), ec) > 0 && !ec;
-    s.eboot_bin = fs::exists(
-        update_required() ? update_dir(base) / "USRDIR/EBOOT.BIN" : base / "game/disc/PS3_GAME/USRDIR/EBOOT.BIN", ec);
+    s.eboot_bin = fs::exists(DOD3_EU             ? dlc_dir(base) / "USRDIR/EBOOT.BIN"
+                             : update_required() ? update_dir(base) / "USRDIR/EBOOT.BIN"
+                                                 : base / "game/disc/PS3_GAME/USRDIR/EBOOT.BIN",
+                             ec);
     for (const DlcInfo& d : known_dlc())
         if (fs::is_directory(dlc_dir(base) / "USRDIR/DLC" / d.id, ec)) s.dlc.insert(d.id);
     for (const ModRow& r : mods_read(base)) {
@@ -1094,10 +1116,50 @@ bool identify_mod_pkg(const fs::path& p, const std::string& cid, Source* s, std:
     return true;
 }
 
+#if DOD3_EU
+/* One of NPEB01407's packages: a part of the game, or DLC. Each is a piece
+ * of the one folder, so each goes in as a DLC pack does (merged into
+ * dlc_dir), by its content ID's last part. */
+bool identify_eu_pkg(const fs::path& p, const std::string& cid, Source* s, std::string* err)
+{
+    Pkg pkg;
+    if (!pkg_open(p, &pkg, err)) return false;
+    const std::string id = cid.substr(sizeof kEuPrefix - 1);
+    bool eboot = false, data = false;
+    for (const PkgEntry& e : pkg.entries) {
+        eboot |= e.name == "USRDIR/EBOOT.BIN";
+        data |= !e.dir && e.name.starts_with("USRDIR/SQEX03GAME/COOKEDPS3/") && e.size > (1u << 20);
+    }
+    if (id.starts_with(kEuGamePart) && id.size() == sizeof kEuGamePart && id.back() >= '0' &&
+        id.back() < '0' + kEuGameParts) {
+        if (id.back() == '0' && (!eboot || !data)) {
+            *err = "this is a fix package for a console (its EBOOT.BIN alone); the game's first part, with its "
+                   "files, is the one needed";
+            return false;
+        }
+        s->name = std::string("Drakengard 3 (NPEB01407), part ") + (char)(id.back() + 1) + " of " +
+                  std::to_string(kEuGameParts);
+    } else {
+        s->name = "DLC (NPEB01407) " + id;
+    }
+    s->kind = SourceKind::Dlc;
+    s->id = id;
+    s->bytes = pkg.payload();
+    return true;
+}
+#endif
+
 /* A PS3 package: the US PSN game, the update, a DLC pack, or a mod. */
 bool identify_pkg(const fs::path& p, Source* s, std::string* err)
 {
     const std::string cid = pkg_content_id(p);
+#if DOD3_EU
+    if (cid.starts_with(kEuPrefix)) return identify_eu_pkg(p, cid, s, err);
+    if (!pkg_is_debug(p)) {
+        *err = "this build plays the European PSN release (NPEB01407); this package is another release's";
+        return false;
+    }
+#endif
     if (pkg_is_debug(p)) return identify_mod_pkg(p, cid, s, err);
     if (cid == kPsnGameId) {
         const std::string sha = pkg_footer_sha1(p);
@@ -1325,7 +1387,7 @@ bool make_elf(const std::vector<uint8_t>& self, const Keys& keys, std::vector<ui
     }
     if (!self_decrypt(self, keys.self_keys(), elf, wrong_keys, err)) return false;
     const std::string sha = sha256_hex(elf->data(), elf->size());
-    if (sha != (update_required() ? kElf101Sha256 : kEbootElfSha256)) {
+    if (sha != (DOD3_EU ? kElfEuSha256 : update_required() ? kElf101Sha256 : kEbootElfSha256)) {
         *err = "the executable made from EBOOT.BIN is not the expected one (SHA-256 " + sha + ")";
         return false;
     }
@@ -1373,7 +1435,8 @@ bool install(const fs::path& base, const Plan& plan,
     /* The executable, made first (in memory) so wrong keys stop the install
      * before anything is copied; written once the update is in place. */
     std::vector<uint8_t> elf;
-    const bool make = !plan.eboot.set() && !installed(base).eboot;
+    /* NPEB01407: made once its first part is in place, below */
+    const bool make = !DOD3_EU && !plan.eboot.set() && !installed(base).eboot;
     if (make) {
         if (!progress(0, total, "Making the game's executable")) return fail("cancelled");
         std::vector<uint8_t> self;
@@ -1461,7 +1524,16 @@ bool install(const fs::path& base, const Plan& plan,
         const fs::path part = stage / "dlc";
         const uint64_t start = done;
         const std::string what = "Installing " + d.name;
-        if (!pkg_extract(pkg, part, [&](uint64_t x, uint64_t) { return progress(start + x, total, what); }, err))
+#if DOD3_EU
+        /* the game's own PARAM.SFO (an HDD game, "HG") and icons are the
+         * first part's; the others carry a game-data one ("GD") */
+        const bool first = d.id == std::string(kEuGamePart) + "0";
+        auto layout = [&](const std::string& n) { return first || n.find('/') != std::string::npos ? n : std::string(); };
+#else
+        const std::function<std::string(const std::string&)> layout = nullptr;
+#endif
+        if (!pkg_extract(pkg, part, [&](uint64_t x, uint64_t) { return progress(start + x, total, what); }, err,
+                         layout))
             return fail(*err);
         /* each pack is its own folder under USRDIR/DLC; the voice pack also
          * fills USRDIR/DLC_JPV. The shared PARAM.SFO and icons are the same
@@ -1469,8 +1541,28 @@ bool install(const fs::path& base, const Plan& plan,
         if (!merge_move(part, dlc_dir(base), err)) return fail(*err);
         if (d.id == kVoicePackId && !dlc_write_jpv_lists(base / "game/disc", true))
             return fail("the Japanese Voice Pack installed, but its file lists could not be written");
+#if DOD3_EU
+        fs::create_directories(eu_mark(base, d.id).parent_path(), ec);
+        if (!write_file(eu_mark(base, d.id), d.name)) return fail("could not write " + utf8(eu_mark(base, d.id)));
+#endif
         done = start + pkg.file_size;
     }
+#if DOD3_EU
+    if (!plan.eboot.set() && !installed(base).eboot && fs::exists(dlc_dir(base) / "USRDIR/EBOOT.BIN", ec)) {
+        if (!progress(done, total, "Making the game's executable")) return fail("cancelled");
+        std::vector<uint8_t> self;
+        bool wrong = false;
+        const fs::path bin = dlc_dir(base) / "USRDIR/EBOOT.BIN", to = base / eboot_path(),
+                       part = stage / "EBOOT.ELF";
+        if (!read_file(bin, 256u << 20, &self)) return fail("cannot read " + utf8(bin));
+        if (!make_elf(self, plan.keys, &elf, &wrong, err)) return fail(*err);
+        fs::create_directories(stage, ec);
+        fs::create_directories(to.parent_path(), ec);
+        const bool wrote = write_file(part, elf.data(), elf.size());
+        if (wrote) move_patiently(part, to, ec);
+        if (!wrote || ec) return fail("could not write " + utf8(to));
+    }
+#endif
 
     for (const Source& md : plan.mods) {
         const uint64_t start = done;
@@ -1541,9 +1633,19 @@ int install_files_cli(const fs::path& base, const std::vector<fs::path>& files, 
     }
     const Status have = installed(base);
     std::string missing;
+#if DOD3_EU
+    for (int i = 0; i < kEuGameParts; i++) {
+        const std::string id = kEuGamePart + std::to_string(i);
+        std::error_code ec;
+        bool in = fs::exists(eu_mark(base, id), ec);
+        for (const Source& d : plan.dlc) in |= d.id == id;
+        if (!in) missing += " the game's part " + std::to_string(i + 1) + " (EP0082-NPEB01407_00-" + id + "),";
+    }
+#else
     if (!plan.disc.set() && !have.disc)
         missing += update_required() ? " the game (the disc as an .iso or its folder, or the US PSN package),"
                                      : " the game disc (an .iso or its folder),";
+#endif
     if (update_required() && !plan.update.set() && !have.update) missing += " the 1.01 update package,";
     if (plan.remove_mods && !plan.update.set() && mods_need_update(base))
         missing += " the 1.01 update package (it puts back the files a mod replaced in its folder),";

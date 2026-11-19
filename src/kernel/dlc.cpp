@@ -33,6 +33,7 @@
 #include <string>
 #include <vector>
 #include "util.h"
+#include "cpu/eboot.h"
 #include "install/install.h"
 
 namespace fs = std::filesystem;
@@ -64,7 +65,11 @@ bool write_list(const fs::path& out, const std::vector<std::string>& lines)
  * installer's, right after it installs the pack. */
 bool dod3setup::dlc_write_jpv_lists(const fs::path& game_root, bool force)
 {
+#if DOD3_EU
+    const fs::path jpv = game_root / "game" / DOD3_TITLE_DIR / "USRDIR" / "DLC_JPV";
+#else
     const fs::path jpv = game_root / "game" / "NPUB31251" / "USRDIR" / "DLC_JPV";
+#endif
     std::error_code ec;
     if (!fs::is_directory(jpv / "SQEX03GAME", ec)) return false;
     const fs::path pkg_list = jpv / "JPV_PKG_FILES.TXT", non_list = jpv / "JPV_NON_PKG_FILES.TXT";

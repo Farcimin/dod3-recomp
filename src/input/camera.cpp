@@ -89,6 +89,7 @@ float pitch_constant(float pitch)
 
 bool s_init;
 bool s_mouse = true, s_fps_fix = true, s_log;
+float s_speed = 1.0f;            /* DOD3_CAMERA_SPEED=<x>: the stick turns x times the console's speed */
 float s_sens = 1.0f;
 const char* s_test_file;
 const char* s_mouse_test_file;
@@ -127,7 +128,11 @@ void init()
     s_init = true;
     if (const char* e = getenv("DOD3_MOUSE")) s_mouse = strcmp(e, "0") != 0;
     read_sensitivity();
-    if (const char* e = getenv("DOD3_CAMERA_SPEED")) s_fps_fix = strcmp(e, "original") != 0;
+    if (const char* e = getenv("DOD3_CAMERA_SPEED")) {
+        s_fps_fix = strcmp(e, "original") != 0;
+        const double v = atof(e);
+        if (v > 0.1 && v < 10.0) s_speed = (float)v;
+    }
     s_log = getenv("DOD3_CAM_LOG") != nullptr;
     s_test_file = getenv("DOD3_CAM_TEST_FILE");
     s_mouse_test_file = getenv("DOD3_MOUSE_TEST_FILE");
@@ -163,6 +168,7 @@ void dod3_camera_frame(float delta, int dragon)
     s_dt = dt;
     /* Zero's camera is the one measured; the dragon's stick is left as the title has it. */
     s_scale = s_fps_fix && !dragon && dt < kReferenceFrame ? kReferenceFrame / dt : 1.0f;
+    if (s_fps_fix && !dragon) s_scale *= s_speed;
 
     int dx = 0, dy = 0;
     if (s_mouse && t - s_cursor_time < 100000) {   /* the dragon's cursor has the mouse: what went past the edge */

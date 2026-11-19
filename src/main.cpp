@@ -134,6 +134,7 @@ extern "C" void win_prof_slow_frame_async(uint64_t start_us, uint64_t end_us, do
  * -----------------------------------------------------------------------*/
 extern "C" {
 uint32_t ppu_load_elf(const char* path);      /* ELF -> guest RAM, returns entry OPD */
+void cellGame_init_from_paramsfo(const char* sfo_path);   /* the title id and boot type (libs/system/cellGame.c) */
 void ppu_recomp_register(void);           /* generated: lifted table -> address map */
 void ppu_hle_init(void);                  /* firmware import NID -> HLE handler */
 void ppu_sysprx_register(void);           /* boot-critical CRT (sys_initialize_tls, ...) */
@@ -2149,7 +2150,11 @@ int main(int argc, char** argv)
     pgo_writer_start();                 /* nothing unless DOD3_PGO=generate */
 #endif
 
+#if DOD3_EU
+    printf("=== Drakengard 3 Recompiled %s (%s) ===\n", DOD3_VERSION_STRING, DOD3_EBOOT_NAME);
+#else
     printf("=== Drakengard 3 Recompiled %s (BLUS31197 %s) ===\n", DOD3_VERSION_STRING, DOD3_EBOOT_NAME);
+#endif
 
     /* Drakengard 3's RHI appends commands behind a JUMP-to-self park and patches
      * the park shortly after. The toolkit's FIFO resyncs skip past such a park
@@ -2199,7 +2204,7 @@ int main(int argc, char** argv)
      * read a request record before it was filled and died mid-chapter); one
      * at a time queued each Havok task behind the others for 1-3 ms in the
      * destruction scenes. SPURS_TASKSET_SERIAL=01AA7700 runs it one at a time. */
-    dod3_setenv("SPURS_TASKSET_CONTENTION", "01AA7700", 0);
+    dod3_setenv("SPURS_TASKSET_CONTENTION", DOD3_A_PHYSX_TASKSET, 0);
     /* The runtime treats SPU image 22 as You Don't Know Jack's cri media task
      * (context from the CreateTask globals, an EXIT that returns to the task).
      * Here image 22 is a PhysX task; it never returned and the serialised
@@ -2321,7 +2326,13 @@ int main(int argc, char** argv)
 #endif
         return 1;
     }
-#if DOD3_EBOOT == 101
+#if DOD3_EU
+    /* NPEB01407 is a PSN game: booted from its own /dev_hdd0/game/NPEB01407
+     * (an HDD game, its PARAM.SFO's CATEGORY "HG"), with the DLC in its
+     * USRDIR/DLC and no update. */
+    if (const char* root = getenv("PS3_VFS_ROOT"))
+        cellGame_init_from_paramsfo((std::string(root) + "/game/" DOD3_TITLE_DIR "/PARAM.SFO").c_str());
+#elif DOD3_EBOOT == 101
     /* 1.01 is the update: it finds its PATCH folder (the update's script
      * packages, which its EBOOT's hash table names) only when booted as one
      * (cellGame, PS3_GAME_PATCH). */

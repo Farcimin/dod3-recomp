@@ -12,9 +12,18 @@ cd "$(dirname "$0")/.."
 PY=.venv/bin/python
 [ -x "$PY" ] || PY=.venv/Scripts/python.exe   # a Windows venv (run this from Git Bash)
 T=ps3recomp/tools
+# The European PSN release's executable (NPEB01407, elf/EBOOT_EU.ELF) carries
+# the same SPU programs, every one 0xC00 bytes lower: its images are named at
+# 1.01's addresses, so the hooks below and the registry name them alike.
 ELF=${DOD3_ELF:-elf/EBOOT_101.ELF}
+[ -f "$ELF" ] || [ -n "$DOD3_ELF" ] || ELF=elf/EBOOT_EU.ELF
 [ -f "$ELF" ] || { echo "lift_spu: no $ELF (docs/BUILDING.md)"; exit 1; }
-[ "$(wc -c < "$ELF" | tr -d ' ')" = 26872424 ] || { echo "lift_spu: $ELF is not the 1.01 update's EBOOT"; exit 1; }
+SHIFT=0
+case "$(wc -c < "$ELF" | tr -d ' ')" in
+26872424) ;;
+26872656) SHIFT=$((0xC00)) ;;   # NPEB01407
+*) echo "lift_spu: $ELF is neither the 1.01 update's EBOOT nor NPEB01407's"; exit 1 ;;
+esac
 
 # Lifts already in spu/ are kept (build_spu_workloads.py skips them), so an
 # unchanged image is not recompiled. The overlays (the DSP plugin block, our
@@ -25,6 +34,12 @@ ELF=${DOD3_ELF:-elf/EBOOT_101.ELF}
 mkdir -p spu/images
 rm -rf spu/spu_ovl_msdsp_37000 spu/spu_ovl_mp3_1A900 spu/spu_ovl_mp3native_1A900
 $PY $T/extract_spu_images.py "$ELF" --output spu/images
+if [ "$SHIFT" != 0 ]; then
+    for f in spu/images/spu_*_at_*.elf; do
+        b=${f##*/}; id=${b%%_at_*}; a=${b##*_at_}; a=${a%.elf}
+        mv "$f" "spu/images/${id}_at_$(printf '%08X' $(( 0x$a + SHIFT ))).elf"
+    done
+fi
 
 # Raw SPURS job binaries in the EBOOT (not ELFs, so extract_spu_images.py
 # misses them): "<file offset> <bytes>". The vaddr is offset + 0x10000.
@@ -35,7 +50,7 @@ $PY $T/extract_spu_images.py "$ELF" --output spu/images
 for job in "0x01777480 34688" "0x0177FC00 528"; do
     set -- $job
     va=$(printf '%08X' $(( $1 + 0x10000 )))
-    dd if="$ELF" of=spu/job.bin bs=1 skip=$(( $1 )) count=$2 2>/dev/null
+    dd if="$ELF" of=spu/job.bin bs=1 skip=$(( $1 - SHIFT )) count=$2 2>/dev/null
     $PY $T/wrap_spu_elf.py spu/job.bin --base 0x0 --entry 0x0 \
         --out spu/images/spurs_job_$va.elf
     rm spu/job.bin

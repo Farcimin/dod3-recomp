@@ -28,8 +28,70 @@
 
 </div>
 
+## This fork
+
+A fork of [soyjxck/dod3-recomp](https://github.com/soyjxck/dod3-recomp)
+(its `ps3recomp/` submodule points at
+[Farcimin/ps3recomp](https://github.com/Farcimin/ps3recomp), branch
+`metal-tbdr-opts`). What it adds:
+
+- **The European PSN release, NPEB01407** -- a 1.01-level build of its own,
+  tested with the Russian translation's repack (ALLIANCE&MIRACLE): every
+  address the port knows mapped to it (`src/cpu/eboot.h`, `DOD3_EU`), the
+  game booted as the HDD game it is (`/dev_hdd0/game/NPEB01407`, no update
+  needed), its packages taken by `dod3 --install` (the five game parts and
+  the DLC packages), and the settings-menu patch made for its own script
+  package (`tools/menu_patch.py --eboot=eu`). Only the repack's executable
+  is checked in by hash (`kElfEuSha256` in `src/install/install.cpp`);
+  another NPEB01407 executable needs its own check.
+- **Metal (macOS) render passes for tile-based GPUs** (`ps3recomp`,
+  `libs/video/rsx_metal_backend.m`). On an M4 MacBook Air the GPU time of a
+  chapter 1 battle went from 12.8 to 6.4 ms a frame at 720p, and Chapter 1
+  Verse 4 from 37 render passes and ~480 MB of attachment traffic a frame
+  to 15 and ~130 MB:
+  - one colour snapshot for a run of heat-haze draws that sample the target
+    they draw into, instead of one a draw, each ending the pass
+    (`RSX_SNAP_REUSE=0` turns it off);
+  - rectangle clears encoded inside the pass that draws into the same
+    targets (`RSX_INPASS_CLEAR=0`);
+  - a scratch depth buffer, cleared and never stored, for passes none of
+    whose draws use depth or stencil (`RSX_ZSCRATCH=0`);
+  - `RSX_FP_MATH=relaxed|fast` for the fragment programs (default `safe`:
+    relaxed is ~15% less GPU time but the lighting of characters comes out
+    grainier);
+  - diagnostics: `RSX_PASS_STATS=1` (passes, loads, traffic) and
+    `RSX_PASS_TIME=1` (each pass's GPU time and fragment program), both
+    with `RSX_GPU_TIME=1`.
+- `DOD3_CAMERA_SPEED=<x>`: the camera stick at x times the console's speed.
+
+**Which systems.** The NPEB01407 support, the camera speed and the menu
+patch are in the port's own code and work everywhere the port does. The
+render-pass changes are in the Metal backend only; Direct3D 12 and Vulkan
+render as upstream does (their GPUs are not tile-based, where these costs
+are much smaller, and nothing of this was tried there).
+
+**Building for NPEB01407** follows [Building](#building), with
+`elf/EBOOT_EU.ELF` (the game's `USRDIR/EBOOT.BIN`, decrypted with `rpcs3
+--decrypt`) in place of the 1.01 executable; `libsre.prx` is needed as
+upstream says:
+
+```sh
+.venv/bin/python ps3recomp/tools/ppu_loader.py elf/EBOOT_EU.ELF -o out/eu/
+.venv/bin/python ps3recomp/tools/ppu_lifter.py elf/EBOOT_EU.ELF \
+    --functions out/eu/EBOOT_EU.functions.json \
+    --hle-stubs out/eu/EBOOT_EU.imports.json \
+    --code-end 0x157f038 --nonvolatile-locals \
+    --hook 0x000C1E50 --hook 0x00EE6B98 --hook 0x00272E58 \
+    -o recompiled_eu/
+DOD3_ELF=elf/EBOOT_EU.ELF tools/lift_spu.sh
+cmake -S . -B build_eu -G Ninja -DCMAKE_BUILD_TYPE=Release -DDOD3_EU=ON
+cmake --build build_eu
+DOD3_INSTALL_BASE=<dir> build_eu/dod3 --install <the NPEB01407 .pkg files>
+```
+
 ## Contents
 
+- [This fork](#this-fork)
 - [About](#about)
 - [Installing](#installing)
 - [Building](#building)
